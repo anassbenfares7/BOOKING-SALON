@@ -29,19 +29,24 @@ router.post("/register", async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
 
   let user;
-
+  let salonId;
+  
   if (role === "OWNER") {
-    user = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const newUser = await tx.user.create({
         data: { name, email, passwordHash, role: "OWNER" },
       });
 
-      await tx.salon.create({
+      const newSalon = await tx.salon.create({
         data: { name: salonName, address: salonAddress, ownerId: newUser.id },
       });
 
-      return newUser;
+      return { newUser, newSalon };
     });
+
+    user = result.newUser;
+    salonId = result.newSalon.id;
+
   } else {
     user = await prisma.user.create({
       data: { name, email, passwordHash, role: "CLIENT" },
@@ -49,7 +54,7 @@ router.post("/register", async (req, res) => {
   }
 
   const token = jwt.sign(
-    { userId: user.id, role: user.role },
+    { userId: user.id, role: user.role, salonId: salonId || null },
     process.env.JWT_SECRET as string,
     { expiresIn: "7d" }
   );
@@ -84,9 +89,15 @@ router.post("/login", async (req, res) => {
     return res.status(401).json({ error: "Invalid email or password" });
   }  
 
+  let salonId;
+  if (user.role === "OWNER"){
+    salonId = (await prisma.salon.findUnique({ where: { ownerId: user.id }, select: {id: true} }))?.id;
+  } else if (user.role === "STAFF"){
+    salonId = user.salonId;
+  }
 
   const token = jwt.sign(
-    { userId: user.id, role: user.role },
+    { userId: user.id, role: user.role, salonId: salonId || null },
     process.env.JWT_SECRET as string,
     { expiresIn: "7d" }
   );

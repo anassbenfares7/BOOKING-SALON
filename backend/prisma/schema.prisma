@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  CLIENT
+  STAFF
+  OWNER
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model Salon {
+  id        String    @id @default(uuid())
+  name      String
+  address   String
+  ownerId   String    @unique
+  owner     User      @relation("SalonOwner", fields: [ownerId], references: [id])
+  staff     User[]    @relation("SalonStaff")
+  services  Service[]
+  createdAt DateTime  @default(now())
+}
+
+model User {
+  id                 String         @id @default(uuid())
+  name               String
+  email              String         @unique
+  passwordHash       String
+  role               Role
+  salonId            String?
+  salon              Salon?         @relation("SalonStaff", fields: [salonId], references: [id])
+  ownedSalon         Salon?         @relation("SalonOwner")
+  workingHours       WorkingHours[]
+  clientReservations Reservation[]  @relation("ClientReservations")
+  staffReservations  Reservation[]  @relation("StaffReservations")
+  createdAt          DateTime       @default(now())
+}
+
+model Service {
+  id           String        @id @default(uuid())
+  salonId      String
+  salon        Salon         @relation(fields: [salonId], references: [id])
+  name         String
+  description  String?
+  price        Decimal
+  duration     Int
+  reservations Reservation[]
+  createdAt    DateTime      @default(now())
+}
+
+model WorkingHours {
+  id        String @id @default(uuid())
+  staffId   String
+  staff     User   @relation(fields: [staffId], references: [id])
+  dayOfWeek Int
+  startTime String
+  endTime   String
+
+  @@unique([staffId, dayOfWeek])
+}
+
+model Reservation {
+  id             String            @id @default(uuid())
+  clientId       String
+  client         User              @relation("ClientReservations", fields: [clientId], references: [id])
+  staffId        String
+  staff          User              @relation("StaffReservations", fields: [staffId], references: [id])
+  serviceId      String
+  service        Service           @relation(fields: [serviceId], references: [id])
+  date           DateTime
+  startTime      String
+  priceAtBooking Decimal
+  status          ReservationStatus @default(PENDING)
+  createdAt      DateTime          @default(now())
+}

@@ -1,0 +1,15 @@
+node_modules
+# Keep environment variables out of version control
+.env
+
+/src/generated/prisma
+/dist
+
+# AI tool reference docs, not project code
+.claude/skills
+.agents/skills
+.windsurf/skills
+skills-lock.json
+
+# Personal test notes with real tokens/passwords, never commit
+auth-infos.md

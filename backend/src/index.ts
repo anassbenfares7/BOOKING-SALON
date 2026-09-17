@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import authRoutes from "./routes/auth.routes.js";
 import staffRoutes from "./routes/staff.routes.js";
+import servicesRoutes from "./routes/services.routes.js";
 
 import cookieParser from "cookie-parser";
 
@@ -23,6 +24,8 @@ app.get("/", (req, res) => {
 
 app.use("/staff", staffRoutes);
 app.use("/auth", authRoutes);
+app.use(servicesRoutes);
+
 
 const PORT = process.env.PORT || 5000;
 

@@ -5,6 +5,7 @@ import authRoutes from "./routes/auth.routes.js";
 import staffRoutes from "./routes/staff.routes.js";
 import servicesRoutes from "./routes/services.routes.js";
 import workingHoursRoutes from "./routes/workingHours.routes.js";
+import reservationsRoutes from "./routes/reservations.routes.js";
 
 import cookieParser from "cookie-parser";
 
@@ -27,6 +28,7 @@ app.use("/staff", staffRoutes);
 app.use("/auth", authRoutes);
 app.use(servicesRoutes);
 app.use(workingHoursRoutes);
+app.use(reservationsRoutes);
 
 
 const PORT = process.env.PORT || 5000;

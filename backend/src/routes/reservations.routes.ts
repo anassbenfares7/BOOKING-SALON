@@ -54,11 +54,40 @@ router.post("/reservations", requireAuth, requireRole("CLIENT"), async (req, res
   }
 
   try {
+    const [staff, service, hours] = await Promise.all([
+      prisma.user.findUnique({ where: { id: staffId }, select: { role: true, salonId: true } }),
+      prisma.service.findUnique({ where: { id: serviceId } }),
+      prisma.workingHours.findUnique({
+        where: { staffId_dayOfWeek: { staffId, dayOfWeek: bookingDate.getUTCDay() } },
+      }),
+    ]);
+
+    if (!staff || staff.role !== "STAFF") {
+      return res.status(404).json({ error: "Staff member not found" });
+    }
+    if (!service) {
+      return res.status(404).json({ error: "Service not found" });
+    }
+    if (service.salonId !== staff.salonId) {
+      return res.status(400).json({ error: "This service is not offered by this staff member's salon" });
+    }
+
+    const newEnd = newStart + service.duration;
+
+    if (!hours) {
+      return res.status(400).json({ error: "This staff member does not work on this day" });
+    }
+    const workStart = parseTime(hours.startTime);
+    const workEnd = parseTime(hours.endTime);
+    if (workStart === null || workEnd === null) {
+      throw new Error("Invalid working hours stored for staff");
+    }
+    if (newStart < workStart || newEnd > workEnd) {
+      return res.status(400).json({ error: `Outside working hours (${hours.startTime}-${hours.endTime})` });
+    }
+
     const reservation = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${staffId}))`;
-
-      const service = await tx.service.findUnique({ where: { id: serviceId } });
-      if (!service) throw new BookingError(404, "Service not found");
 
       const newEnd = newStart + service.duration;
 

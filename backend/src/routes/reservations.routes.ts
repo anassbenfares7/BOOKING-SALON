@@ -5,18 +5,27 @@ import { requireRole } from "../middleware/role.middleware.js";
 
 const router = Router();
 
-function toMinutes(time: string): number {
-  const [hStr, mStr] = time.split(":");
-  const h = Number(hStr);
-  const m = Number(mStr);
-
-  if (Number.isNaN(h) || Number.isNaN(m)) {
-    throw new Error("INVALID_TIME_FORMAT");
+class BookingError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
   }
-
-  return h * 60 + m;
 }
 
+function parseTime(time: unknown): number | null {
+  if (typeof time !== "string") return null;
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(time);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function parseDate(date: unknown): Date | null {
+  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return null;
+  return parsed;
+}
 
 router.post("/reservations", requireAuth, requireRole("CLIENT"), async (req, res) => {
   const { staffId, serviceId, date, startTime } = req.body;
@@ -30,35 +39,48 @@ router.post("/reservations", requireAuth, requireRole("CLIENT"), async (req, res
   }
   const clientId = req.userId;
 
+  const bookingDate = parseDate(date);
+  if (!bookingDate) {
+    return res.status(400).json({ error: "Invalid date, expected YYYY-MM-DD" });
+  }
+
+  const newStart = parseTime(startTime);
+  if (newStart === null) {
+    return res.status(400).json({ error: "Invalid time format, expected HH:MM" });
+  }
+
+  if (new Date(`${date}T${startTime}:00`) < new Date()) {
+    return res.status(400).json({ error: "Cannot book a time in the past" });
+  }
+
   try {
     const reservation = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${staffId}))`;
 
       const service = await tx.service.findUnique({ where: { id: serviceId } });
-      if (!service) throw new Error("SERVICE_NOT_FOUND");
+      if (!service) throw new BookingError(404, "Service not found");
 
-      const newStart = toMinutes(startTime);
       const newEnd = newStart + service.duration;
 
       const existing = await tx.reservation.findMany({
-        where: { staffId, date: new Date(date), status: { not: "CANCELLED" } },
+        where: { staffId, date: bookingDate, status: { not: "CANCELLED" } },
         include: { service: true },
       });
 
       const overlaps = existing.some((r) => {
-        const existingStart = toMinutes(r.startTime);
+        const existingStart = parseTime(r.startTime)!;
         const existingEnd = existingStart + r.service.duration;
         return existingStart < newEnd && existingEnd > newStart;
       });
 
-      if (overlaps) throw new Error("SLOT_TAKEN");
+      if (overlaps) throw new BookingError(409, "This time slot is no longer available");
 
       return tx.reservation.create({
         data: {
           clientId,
           staffId,
           serviceId,
-          date: new Date(date),
+          date: bookingDate,
           startTime,
           priceAtBooking: service.price,
           status: "PENDING",
@@ -68,16 +90,9 @@ router.post("/reservations", requireAuth, requireRole("CLIENT"), async (req, res
 
     res.status(201).json({ message: "Reservation created", reservation });
   } catch (error) {
-    if (error instanceof Error && error.message === "SLOT_TAKEN") {
-      return res.status(409).json({ error: "This time slot is no longer available" });
+    if (error instanceof BookingError) {
+      return res.status(error.status).json({ error: error.message });
     }
-    if (error instanceof Error && error.message === "SERVICE_NOT_FOUND") {
-      return res.status(404).json({ error: "Service not found" });
-    }
-    if (error instanceof Error && error.message === "INVALID_TIME_FORMAT") {
-      return res.status(400).json({ error: "Invalid time format, expected HH:MM" });
-    }
-
     res.status(500).json({ error: "Failed to create reservation" });
   }
 });
